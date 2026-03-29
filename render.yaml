@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: llm-monitor-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DB_PATH
+        value: ./data/llm_monitor.db
+      - key: HF_API_TOKEN
+        value: your_token_here

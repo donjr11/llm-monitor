@@ -1,0 +1,25 @@
+# Environment
+.env
+__pycache__/
+*.pyc
+*.pyo
+
+# Database file
+*.db
+*.sqlite3
+
+# Virtual environment
+venv/
+env/
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reports output
+reports/*.pdf
+reports/digest*.md
+!reports/template.md
