@@ -1,0 +1,140 @@
+{
+  "name": "LLM Monitor — Daily Digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "Daily at 8 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/collect",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "22222222-2222-2222-2222-222222222222",
+      "name": "Run Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/models/new",
+        "options": {}
+      },
+      "id": "33333333-3333-3333-3333-333333333333",
+      "name": "Get New Models",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/recommend/all",
+        "options": {}
+      },
+      "id": "44444444-4444-4444-4444-444444444444",
+      "name": "Get All Recommendations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:8000/report/generate",
+        "options": {}
+      },
+      "id": "55555555-5555-5555-5555-555555555555",
+      "name": "Generate Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ─── LLM Monitor: Build Daily Digest Email ───────────────────────────────\n\n// 1. Grab upstream node outputs\nconst collectResult = $('Run Collection').item.json;\nconst newModelsData = $('Get New Models').item.json;\nconst allRecs       = $('Get All Recommendations').item.json;\n\n// 2. Extract key values\nconst newModels   = newModelsData.models || [];\nconst totalModels = newModelsData.total  || 0;\nconst newCount    = newModels.length;\nconst date      = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });\nconst dateShort = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric' });\n\n// 3. Collection status table rows\nconst statusRows = Object.entries(collectResult.results || {}).map(([k, v]) => {\n  const ok  = v === 'ok';\n  const bg  = ok ? '#dcfce7' : '#fee2e2';\n  const fg  = ok ? '#166534' : '#991b1b';\n  const txt = ok ? '&#10003; OK' : '&#10007; ' + v;\n  return `<tr><td style='padding:6px 12px;font-size:13px;color:#475569;border-bottom:1px solid #f1f5f9;'>${k.replace(/_/g,' ')}</td><td style='padding:6px 12px;border-bottom:1px solid #f1f5f9;'><span style='background:${bg};color:${fg};padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;'>${txt}</span></td></tr>`;\n}).join('');\n\n// 4. New models list items\nconst newModelItems = newModels.slice(0, 15).map(m =>\n  `<li style='margin-bottom:4px;'><strong>${m.name}</strong> <span style='color:#64748b;font-size:12px;'>· ${m.provider || '—'} · ${m.license_type || 'unknown'} · ${m.source}</span></li>`\n).join('');\n\n// 5. Per-profile recommendation tables\nconst PROFILE_LABELS = {\n  coding:            'Coding / Dev',\n  reasoning:         'Reasoning / Analysis',\n  rag_long_context:  'Long Context RAG',\n  minimum_cost:      'Minimum Cost',\n  enterprise_agents: 'Enterprise Agents'\n};\nconst MEDALS = ['#1', '#2', '#3'];\n\nconst recSections = Object.entries(allRecs).map(([profile, data]) => {\n  const results = (data.results || []).slice(0, 3);\n  const rows = results.map((m, i) =>\n    `<tr><td style='padding:8px 12px;font-size:13px;border-bottom:1px solid #f8fafc;'>${MEDALS[i]} <strong>${m.name}</strong></td><td style='padding:8px 12px;font-size:13px;color:#0891b2;font-weight:600;border-bottom:1px solid #f8fafc;'>${(m.score||0).toFixed(3)}</td><td style='padding:8px 12px;font-size:11px;color:#64748b;border-bottom:1px solid #f8fafc;'>${m.provider || '—'}</td></tr>`\n  ).join('');\n  const label = PROFILE_LABELS[profile] || profile;\n  return `<h3 style='margin:20px 0 8px;font-size:12px;color:#0891b2;text-transform:uppercase;letter-spacing:1px;'>${label}</h3><table style='width:100%;border-collapse:collapse;background:#f8fafc;border-radius:6px;overflow:hidden;margin-bottom:4px;'>${rows}</table>`;\n}).join('');\n\n// 6. Conditional new-models banner\nconst newModelsSection = newCount > 0\n  ? `<div style='background:#ecfeff;border-radius:10px;padding:20px;margin-bottom:24px;border:1px solid #a5f3fc;'><h2 style='font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:#0891b2;margin:0 0 12px;'>New Models Detected (${newCount})</h2><ul style='margin:0;padding-left:18px;font-size:13px;color:#475569;line-height:1.8;'>${newModelItems}</ul></div>`\n  : '';\n\n// 7. KPI background colors (dynamic)\nconst newBg     = newCount > 0 ? '#ecfeff' : '#f8fafc';\nconst newBorder = newCount > 0 ? '#a5f3fc' : '#e2e8f0';\nconst newColor  = newCount > 0 ? '#0891b2' : '#0f172a';\n\n// 8. Email subject\nconst newTag = newCount > 0 ? `${newCount} new model${newCount > 1 ? 's' : ''} - ` : '';\nconst subject = `LLM Monitor - ${newTag}Daily Digest ${dateShort}`;\n\n// 9. Full HTML body\nconst html = `<!DOCTYPE html><html><head><meta charset='utf-8'></head><body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,sans-serif;'><div style='max-width:680px;margin:24px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);'><div style='background:linear-gradient(135deg,#0c1429 0%,#0f2a4a 100%);padding:32px 36px;'><div style='font-size:11px;letter-spacing:3px;color:#22d3ee;font-weight:700;text-transform:uppercase;margin-bottom:4px;'>EPINEON AI</div><div style='font-size:20px;font-weight:700;color:#fff;margin-bottom:4px;'>LLM Monitor - Daily Digest</div><div style='font-size:13px;color:#64748b;'>${date}</div></div><div style='padding:28px 36px;'><div style='display:flex;gap:12px;margin-bottom:24px;'><div style='flex:1;background:#f8fafc;border-radius:10px;padding:16px;text-align:center;border:1px solid #e2e8f0;'><div style='font-size:28px;font-weight:700;color:#0f172a;'>${totalModels}</div><div style='font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-top:2px;'>Models</div></div><div style='flex:1;background:${newBg};border-radius:10px;padding:16px;text-align:center;border:1px solid ${newBorder};'><div style='font-size:28px;font-weight:700;color:${newColor};'>${newCount}</div><div style='font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-top:2px;'>New</div></div><div style='flex:1;background:#f8fafc;border-radius:10px;padding:16px;text-align:center;border:1px solid #e2e8f0;'><div style='font-size:28px;font-weight:700;color:#0f172a;'>5</div><div style='font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-top:2px;'>Profiles</div></div></div><h2 style='font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:#94a3b8;margin:0 0 10px;'>Collection Status</h2><table style='width:100%;border-collapse:collapse;margin-bottom:24px;border:1px solid #f1f5f9;border-radius:8px;overflow:hidden;'>${statusRows}</table>${newModelsSection}<h2 style='font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:#94a3b8;margin:0 0 16px;'>Top Recommendations - AHP+TOPSIS</h2>${recSections}<div style='margin-top:28px;padding-top:20px;border-top:1px solid #f1f5f9;text-align:center;font-size:11px;color:#94a3b8;'>EPINEON AI - LLM Monitor - PFE 2026 - ESITH<br><a href='http://localhost:3000' style='color:#0891b2;text-decoration:none;'>View Dashboard</a></div></div></div></body></html>`;\n\nreturn [{ json: { subject, html } }];"
+      },
+      "id": "66666666-6666-6666-6666-666666666666",
+      "name": "Build Digest Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "llm-monitor@epineon.ai",
+        "toEmail": "your-email@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "77777777-7777-7777-7777-777777777777",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1560, 300],
+      "credentials": {
+        "smtp": {
+          "id": "1",
+          "name": "SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily at 8 AM": {
+      "main": [
+        [{ "node": "Run Collection", "type": "main", "index": 0 }]
+      ]
+    },
+    "Run Collection": {
+      "main": [
+        [{ "node": "Get New Models", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get New Models": {
+      "main": [
+        [{ "node": "Get All Recommendations", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get All Recommendations": {
+      "main": [
+        [{ "node": "Generate Report", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate Report": {
+      "main": [
+        [{ "node": "Build Digest Email", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Digest Email": {
+      "main": [
+        [{ "node": "Send Email", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "llm-monitor-daily-digest",
+  "tags": ["llm-monitor", "epineon", "automation"]
+}
